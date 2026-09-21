@@ -1,3 +1,5 @@
+import dbm.dumb
+import pickle
 import random
 import tempfile
 
@@ -7,6 +9,7 @@ import pytest
 from qdrant_client import QdrantClient
 import qdrant_client.http.models as rest
 from qdrant_client._pydantic_compat import construct
+from qdrant_client.local.persistence import CollectionPersistence
 from tests.fixtures.points import generate_random_sparse_vector_list
 
 default_collection_name = "example"
@@ -258,3 +261,31 @@ def test_idf_persistence_after_deletion(operation: str):
         surviving = [0] if operation == "points" else [0, 1, 2, 3]
         assert [point.id for point in client.scroll(collection_name, limit=10)[0]] == surviving
         client.close()
+
+
+def test_migrate_dumb_dbm_sidecar_files(tmp_path):
+    dbm_path = tmp_path / "storage.dbm"
+    point = rest.PointStruct(id=1, vector=[1.0, 2.0], payload={"source": "legacy"})
+
+    legacy_storage = dbm.dumb.open(str(dbm_path), "c")
+    legacy_storage[pickle.dumps(point.id)] = pickle.dumps(point)
+    legacy_storage.close()
+
+    assert not dbm_path.exists()
+    assert (tmp_path / "storage.dbm.dat").exists()
+    assert (tmp_path / "storage.dbm.dir").exists()
+
+    persistence = CollectionPersistence(str(tmp_path))
+
+    assert list(persistence.load()) == [point]
+    persistence.close()
+    assert (tmp_path / "storage.sqlite").exists()
+    assert not list(tmp_path.glob("storage.dbm*"))
+
+
+def test_missing_legacy_dbm_does_not_create_files(tmp_path):
+    persistence = CollectionPersistence(str(tmp_path))
+    persistence.close()
+
+    assert (tmp_path / "storage.sqlite").exists()
+    assert not list(tmp_path.glob("storage.dbm*"))

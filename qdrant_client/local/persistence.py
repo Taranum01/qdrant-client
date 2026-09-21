@@ -19,7 +19,7 @@ def try_migrate_to_sqlite(location: str) -> None:
     if sql_path.exists():
         return
 
-    if not dbm_path.exists():
+    if dbm.whichdb(str(dbm_path)) is None:
         return
 
     try:
@@ -48,7 +48,9 @@ def try_migrate_to_sqlite(location: str) -> None:
         con.commit()
         con.close()
         dbm_storage.close()
-        dbm_path.unlink()
+        for suffix in ("", ".db", ".dat", ".dir", ".bak", ".pag"):
+            dbm_file = dbm_path.with_name(f"{dbm_path.name}{suffix}")
+            dbm_file.unlink(missing_ok=True)
     except Exception as e:
         logging.error("Failed to migrate dbm to sqlite:", e)
         logging.error(
